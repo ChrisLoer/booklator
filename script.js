@@ -58,7 +58,12 @@ class Booklator {
 
         this.elements.fileInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
-                this.handleFileUpload(e.target.files[0]);
+                const file = e.target.files[0];
+                if (file.name.endsWith('.json')) {
+                    this.loadStateFromFile(file);
+                } else {
+                    this.handleFileUpload(file);
+                }
             }
         });
 
@@ -80,8 +85,10 @@ class Booklator {
                 const file = e.dataTransfer.files[0];
                 if (file.name.endsWith('.docx')) {
                     this.handleFileUpload(file);
+                } else if (file.name.endsWith('.json')) {
+                    this.loadStateFromFile(file);
                 } else {
-                    this.showStatus('Please upload a .docx file', 'error');
+                    this.showStatus('Please upload a .docx file or .json state file', 'error');
                 }
             }
         });
@@ -114,6 +121,9 @@ class Booklator {
             this.customPrompt = storedCustomPrompt;
             this.elements.customPrompt.value = storedCustomPrompt;
         }
+
+        // Load saved state
+        this.loadState();
     }
 
     async handleFileUpload(file) {
@@ -284,6 +294,161 @@ class Booklator {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    // Save current state to localStorage
+    saveState() {
+        const state = {
+            paragraphs: this.paragraphs,
+            translatedParagraphs: this.translatedParagraphs,
+            documentSummary: this.documentSummary,
+            customPrompt: this.customPrompt,
+            timestamp: Date.now()
+        };
+        localStorage.setItem('booklator_state', JSON.stringify(state));
+        console.log('State saved:', state);
+    }
+
+    // Load state from localStorage
+    loadState() {
+        const savedState = localStorage.getItem('booklator_state');
+        if (savedState) {
+            try {
+                const state = JSON.parse(savedState);
+                this.paragraphs = state.paragraphs || [];
+                this.translatedParagraphs = state.translatedParagraphs || [];
+                this.documentSummary = state.documentSummary || '';
+                this.customPrompt = state.customPrompt || '';
+                
+                // Ensure translatedParagraphs array is the same length as paragraphs
+                if (this.paragraphs.length > 0) {
+                    // Extend the array to match the number of paragraphs
+                    while (this.translatedParagraphs.length < this.paragraphs.length) {
+                        this.translatedParagraphs.push(null);
+                    }
+                    
+                    this.showStatus('Previous session found. Click "Resume Translation" to continue.', 'info');
+                    this.showResumeButton();
+                }
+                return true;
+            } catch (error) {
+                console.error('Failed to load state:', error);
+                return false;
+            }
+        }
+        return false;
+    }
+
+    // Show resume button
+    showResumeButton() {
+        // Remove existing resume button if it exists
+        const existingBtn = document.getElementById('resume-translation');
+        if (existingBtn) {
+            existingBtn.remove();
+        }
+        
+        const resumeBtn = document.createElement('button');
+        resumeBtn.id = 'resume-translation';
+        resumeBtn.className = 'btn btn-primary';
+        resumeBtn.textContent = 'Resume Translation';
+        resumeBtn.onclick = () => this.resumeTranslation();
+        
+        const uploadSection = document.getElementById('upload-section');
+        uploadSection.appendChild(resumeBtn);
+    }
+
+    // Resume translation from saved state
+    async resumeTranslation() {
+        if (this.paragraphs.length === 0) {
+            this.showStatus('No saved state to resume from', 'error');
+            return;
+        }
+
+        // Validate API key before resuming
+        if (!this.apiKey.trim()) {
+            this.showStatus('Please enter your OpenAI API key before resuming', 'error');
+            return;
+        }
+
+        this.showStatus('Resuming translation from saved state...', 'info');
+        this.showProgressSection();
+        this.showLiveDisplay();
+        
+        // Display existing summary
+        if (this.documentSummary) {
+            this.elements.liveSummary.innerHTML = marked.parse(this.documentSummary);
+        }
+        
+        // Show existing translations
+        this.updateLiveTranslationDisplay();
+        
+        // Find the first untranslated paragraph
+        const firstUntranslatedIndex = this.translatedParagraphs.findIndex(translation => 
+            !translation || translation === null || translation === undefined || translation === ''
+        );
+        console.log('First untranslated index:', firstUntranslatedIndex);
+        console.log('Translated paragraphs:', this.translatedParagraphs.filter(t => t && t !== null && t !== undefined && t !== '').length);
+        console.log('Total paragraphs:', this.paragraphs.length);
+        console.log('translatedParagraphs array sample:', this.translatedParagraphs.slice(320, 330));
+        
+        if (firstUntranslatedIndex === -1) {
+            this.showStatus('All paragraphs are already translated!', 'success');
+            this.showResults();
+            return;
+        }
+        
+        this.showStatus(`Resuming from paragraph ${firstUntranslatedIndex + 1} (${this.translatedParagraphs.filter(t => t && t !== null && t !== undefined && t !== '').length} already translated)`, 'info');
+        
+        // Continue translation from where we left off
+        await this.translateDocumentFromIndex(firstUntranslatedIndex);
+    }
+
+    // Translate document starting from a specific index
+    async translateDocumentFromIndex(startIndex) {
+        const chunkSize = 8; // Increased from 3 to 8 paragraphs per chunk
+        const contextSize = 2; // Increased from 1 to 2 paragraphs for context
+        const remainingParagraphs = this.paragraphs.length - startIndex;
+        const totalChunks = Math.ceil(remainingParagraphs / chunkSize);
+        
+        console.log('Starting translation from index:', startIndex);
+        console.log('Remaining paragraphs:', remainingParagraphs);
+        console.log('Total chunks needed:', totalChunks);
+        
+        this.showStatus(`Continuing translation from paragraph ${startIndex + 1} - ${remainingParagraphs} paragraphs remaining in ${totalChunks} chunks...`, 'info');
+        
+        for (let i = 0; i < totalChunks; i++) {
+            const chunkStartIndex = startIndex + (i * chunkSize);
+            const chunkEndIndex = Math.min(chunkStartIndex + chunkSize, this.paragraphs.length);
+            const chunk = this.paragraphs.slice(chunkStartIndex, chunkEndIndex);
+            
+            console.log(`Processing chunk ${i + 1}/${totalChunks}: paragraphs ${chunkStartIndex + 1}-${chunkEndIndex}`);
+            
+            // Get context paragraphs
+            const contextBefore = this.paragraphs.slice(Math.max(0, chunkStartIndex - contextSize), chunkStartIndex);
+            const contextAfter = this.paragraphs.slice(chunkEndIndex, Math.min(this.paragraphs.length, chunkEndIndex + contextSize));
+            
+            try {
+                await this.translateChunk(chunk, contextBefore, contextAfter, i + 1, totalChunks);
+                this.updateProgress(10 + ((i + 1) / totalChunks) * 80);
+                
+                // Save state after each chunk
+                this.saveState();
+                
+                // Add delay between chunks to respect rate limits
+                if (i < totalChunks - 1) {
+                    this.showStatus('Waiting for rate limit...', 'info');
+                    await this.delay(3000); // Reduced delay to 3 seconds
+                }
+            } catch (error) {
+                this.showStatus(`Error translating chunk ${i + 1}: ${error.message}`, 'error');
+                this.showRetryButton(i, chunk, contextBefore, contextAfter, totalChunks, startIndex);
+                throw error;
+            }
+        }
+        
+        this.showStatus('Translation completed successfully!', 'success');
+        this.updateProgress(100);
+        this.showResults();
+    }
+
     async generateSummary() {
         try {
             const fullText = this.paragraphs.map(p => p.text).join('\n\n');
@@ -307,7 +472,7 @@ Summary:`;
             
             // Show summary immediately in live display
             this.showLiveDisplay();
-            this.elements.liveSummary.innerHTML = `<p>${this.documentSummary}</p>`;
+            this.elements.liveSummary.innerHTML = marked.parse(this.documentSummary);
             
             this.updateProgress(10);
             
@@ -324,8 +489,8 @@ Summary:`;
     }
 
     async translateDocument() {
-        const chunkSize = 3; // Reduced from 5 to 3 paragraphs per chunk
-        const contextSize = 1; // Reduced from 2 to 1 paragraph for context
+        const chunkSize = 8; // Increased from 3 to 8 paragraphs per chunk
+        const contextSize = 2; // Increased from 1 to 2 paragraphs for context
         const totalChunks = Math.ceil(this.paragraphs.length / chunkSize);
         
         this.showStatus(`Starting translation using GPT-4o (30,000 TPM limit) - ${this.paragraphs.length} paragraphs in ${totalChunks} chunks...`, 'info');
@@ -343,13 +508,17 @@ Summary:`;
                 await this.translateChunk(chunk, contextBefore, contextAfter, i + 1, totalChunks);
                 this.updateProgress(10 + ((i + 1) / totalChunks) * 80);
                 
+                // Save state after each chunk
+                this.saveState();
+                
                 // Add delay between chunks to respect rate limits
                 if (i < totalChunks - 1) {
                     this.showStatus('Waiting for rate limit...', 'info');
-                    await this.delay(5000); // Increased delay to 5 seconds
+                    await this.delay(3000); // Reduced delay to 3 seconds
                 }
             } catch (error) {
                 this.showStatus(`Error translating chunk ${i + 1}: ${error.message}`, 'error');
+                this.showRetryButton(i, chunk, contextBefore, contextAfter, totalChunks);
                 throw error;
             }
         }
@@ -359,7 +528,47 @@ Summary:`;
         this.showResults();
     }
 
+    showRetryButton(chunkIndex, chunk, contextBefore, contextAfter, totalChunks, startIndex = 0) {
+        const retryBtn = document.createElement('button');
+        retryBtn.id = 'retry-chunk';
+        retryBtn.className = 'btn btn-secondary';
+        retryBtn.textContent = `Retry Chunk ${chunkIndex + 1}`;
+        retryBtn.onclick = async () => {
+            retryBtn.disabled = true;
+            retryBtn.textContent = 'Retrying...';
+            
+            try {
+                await this.translateChunk(chunk, contextBefore, contextAfter, chunkIndex + 1, totalChunks);
+                this.showStatus(`Chunk ${chunkIndex + 1} retried successfully`, 'success');
+                retryBtn.remove();
+                
+                // Continue with next chunk
+                this.updateProgress(10 + ((chunkIndex + 1) / totalChunks) * 80);
+                this.saveState();
+                
+                // Continue translation from the current position
+                const nextChunkStartIndex = startIndex + ((chunkIndex + 1) * 8); // 8 is chunkSize
+                if (nextChunkStartIndex < this.paragraphs.length) {
+                    await this.translateDocumentFromIndex(nextChunkStartIndex);
+                } else {
+                    this.showStatus('Translation completed successfully!', 'success');
+                    this.updateProgress(100);
+                    this.showResults();
+                }
+            } catch (error) {
+                this.showStatus(`Retry failed: ${error.message}`, 'error');
+                retryBtn.disabled = false;
+                retryBtn.textContent = `Retry Chunk ${chunkIndex + 1}`;
+            }
+        };
+        
+        const statusMessages = document.getElementById('status-messages');
+        statusMessages.appendChild(retryBtn);
+    }
+
     async translateChunk(chunk, contextBefore, contextAfter, chunkNumber, totalChunks) {
+        console.log(`translateChunk called for chunk ${chunkNumber}/${totalChunks} with ${chunk.length} paragraphs`);
+        
         const contextBeforeText = contextBefore.map(p => `${p.number}. ${p.text}`).join('\n');
         const chunkText = chunk.map(p => `${p.number}. ${p.text}`).join('\n');
         const contextAfterText = contextAfter.map(p => `${p.number}. ${p.text}`).join('\n');
@@ -380,7 +589,9 @@ Next: ${contextAfterText || 'None'}
 Respond with JSON array: [{"number": 1, "text": "translation"}, ...]`;
 
         const estimatedTokens = this.estimateTokens(promptText);
-        this.showStatus(`Chunk ${chunkNumber}/${totalChunks} - Estimated tokens: ${estimatedTokens.toLocaleString()}`, 'info');
+        this.showStatus(`Chunk ${chunkNumber} - Processing ${chunk.length} paragraphs`, 'info');
+        
+        console.log(`Making OpenAI API call for chunk ${chunkNumber} with ${estimatedTokens} estimated tokens`);
         
         // If estimated tokens are too high, reduce the chunk further
         if (estimatedTokens > 12000) {
@@ -392,7 +603,8 @@ Respond with JSON array: [{"number": 1, "text": "translation"}, ...]`;
 
 Respond with JSON: {"number": ${singleParagraph.number}, "text": "translation"}`;
                 
-                const response = await this.callOpenAI(singlePrompt, 200, 'gpt-4o');
+                console.log(`Making individual API call for paragraph ${singleParagraph.number}`);
+                const response = await this.callOpenAI(singlePrompt, null, 'gpt-4o'); // Removed maxTokens limit
                 const translated = this.extractJSONFromResponse(response);
                 this.translatedParagraphs[translated.number - 1] = translated.text;
                 
@@ -400,7 +612,8 @@ Respond with JSON: {"number": ${singleParagraph.number}, "text": "translation"}`
                 await this.delay(2000); // 2 second delay between paragraphs
             }
         } else {
-            const response = await this.callOpenAI(promptText, 800, 'gpt-4o'); // Explicitly use gpt-4o for translation
+            console.log(`Making chunk API call for ${chunk.length} paragraphs`);
+            const response = await this.callOpenAI(promptText, null, 'gpt-4o'); // Removed maxTokens limit
             
             try {
                 const translatedChunk = this.extractJSONFromResponse(response);
@@ -419,27 +632,33 @@ Respond with JSON: {"number": ${singleParagraph.number}, "text": "translation"}`
 
     async callOpenAI(prompt, maxTokens = 1000, model = 'gpt-4o') {
         try {
+            const requestBody = {
+                model: model,
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You are a professional translator. Provide accurate, context-aware translations while maintaining the original structure and formatting.'
+                    },
+                    {
+                        role: 'user',
+                        content: prompt
+                    }
+                ],
+                temperature: 0.3
+            };
+
+            // Only add max_tokens if specified (not null)
+            if (maxTokens !== null) {
+                requestBody.max_tokens = maxTokens;
+            }
+
             const response = await fetch('https://api.openai.com/v1/chat/completions', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${this.apiKey}`
                 },
-                body: JSON.stringify({
-                    model: model,
-                    messages: [
-                        {
-                            role: 'system',
-                            content: 'You are a professional translator. Provide accurate, context-aware translations while maintaining the original structure and formatting.'
-                        },
-                        {
-                            role: 'user',
-                            content: prompt
-                        }
-                    ],
-                    max_tokens: maxTokens,
-                    temperature: 0.3
-                })
+                body: JSON.stringify(requestBody)
             });
 
             if (!response.ok) {
@@ -487,13 +706,59 @@ Respond with JSON: {"number": ${singleParagraph.number}, "text": "translation"}`
         // Clean up any remaining whitespace
         jsonText = jsonText.trim();
         
+        // Try to fix common JSON issues
+        jsonText = this.fixJSONIssues(jsonText);
+        
         try {
             return JSON.parse(jsonText);
         } catch (error) {
             console.error('JSON Parse Error:', error);
             console.error('Attempted to parse:', jsonText);
+            
+            // Try to extract JSON array from the response
+            const arrayMatch = jsonText.match(/\[[\s\S]*\]/);
+            if (arrayMatch) {
+                try {
+                    return JSON.parse(arrayMatch[0]);
+                } catch (secondError) {
+                    console.error('Second JSON parse attempt failed:', secondError);
+                }
+            }
+            
             throw new Error('Failed to parse JSON response');
         }
+    }
+
+    // Fix common JSON issues
+    fixJSONIssues(jsonText) {
+        // Fix unterminated strings by finding the last complete object
+        let fixedText = jsonText;
+        
+        // If it ends with a comma, remove it
+        fixedText = fixedText.replace(/,\s*$/, '');
+        
+        // If it ends with an incomplete object, try to find the last complete one
+        if (fixedText.includes('"text": "') && !fixedText.endsWith('"}')) {
+            // Find the last complete object
+            const lastCompleteMatch = fixedText.match(/.*\{"number":\s*\d+,\s*"text":\s*"[^"]*"\}/);
+            if (lastCompleteMatch) {
+                fixedText = lastCompleteMatch[0];
+                // Add closing bracket if missing
+                if (!fixedText.endsWith(']')) {
+                    fixedText += ']';
+                }
+            }
+        }
+        
+        // Ensure it starts and ends with brackets
+        if (!fixedText.startsWith('[')) {
+            fixedText = '[' + fixedText;
+        }
+        if (!fixedText.endsWith(']')) {
+            fixedText = fixedText + ']';
+        }
+        
+        return fixedText;
     }
 
     showProgressSection() {
@@ -521,7 +786,7 @@ Respond with JSON: {"number": ${singleParagraph.number}, "text": "translation"}`
         
         // Display summary
         if (this.documentSummary) {
-            this.elements.documentSummary.innerHTML = `<p>${this.documentSummary}</p>`;
+            this.elements.documentSummary.innerHTML = marked.parse(this.documentSummary);
         } else {
             this.elements.documentSummary.innerHTML = '<p>No summary available</p>';
         }
@@ -611,6 +876,34 @@ Respond with JSON: {"number": ${singleParagraph.number}, "text": "translation"}`
         const blob = await zip.generateAsync({ type: 'blob' });
         const filename = type === 'original' ? 'original_document.zip' : 'translated_document.zip';
         saveAs(blob, filename);
+    }
+
+    async loadStateFromFile(file) {
+        try {
+            const text = await file.text();
+            const state = JSON.parse(text);
+            
+            this.paragraphs = state.paragraphs || [];
+            this.translatedParagraphs = state.translatedParagraphs || [];
+            this.documentSummary = state.documentSummary || '';
+            this.customPrompt = state.customPrompt || '';
+            
+            // Ensure translatedParagraphs array is the same length as paragraphs
+            if (this.paragraphs.length > 0) {
+                // Extend the array to match the number of paragraphs
+                while (this.translatedParagraphs.length < this.paragraphs.length) {
+                    this.translatedParagraphs.push(null);
+                }
+                
+                this.showStatus(`Loaded state from ${file.name} with ${this.paragraphs.length} paragraphs`, 'success');
+                this.showStatus(`Already translated: ${this.translatedParagraphs.filter(t => t && t !== null && t !== undefined && t !== '').length} paragraphs`, 'info');
+                this.showResumeButton();
+            } else {
+                this.showStatus('Invalid state file - no paragraphs found', 'error');
+            }
+        } catch (error) {
+            this.showStatus(`Error loading state file: ${error.message}`, 'error');
+        }
     }
 }
 
