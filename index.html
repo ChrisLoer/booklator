@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booklator - Document Translation Tool</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 Booklator</h1>
+            <p>Translate documents with AI-powered context awareness</p>
+        </header>
+
+        <main>
+            <!-- Setup Section -->
+            <section id="setup-section" class="card">
+                <h2>Setup</h2>
+                <div class="form-group">
+                    <label for="api-key">OpenAI API Key:</label>
+                    <input type="password" id="api-key" placeholder="sk-..." required>
+                    <small>Your API key is stored locally and never sent to our servers</small>
+                </div>
+                <div class="form-group">
+                    <label for="custom-prompt">Custom Translation Prompt (Optional):</label>
+                    <textarea id="custom-prompt" placeholder="Add any specific instructions for translation..."></textarea>
+                </div>
+            </section>
+
+            <!-- File Upload Section -->
+            <section id="upload-section" class="card">
+                <h2>Upload Document</h2>
+                <div class="upload-area" id="upload-area">
+                    <div class="upload-content">
+                        <div class="upload-icon">📄</div>
+                        <h3>Drop your document here</h3>
+                        <p>or</p>
+                        <button type="button" id="browse-btn" class="btn btn-primary">Browse Files</button>
+                        <input type="file" id="file-input" accept=".docx" style="display: none;">
+                    </div>
+                </div>
+                
+                <div class="or-divider">
+                    <span>OR</span>
+                </div>
+                
+                <div class="form-group">
+                    <label for="google-doc-url">Google Doc URL:</label>
+                    <input type="url" id="google-doc-url" placeholder="https://docs.google.com/document/d/...">
+                    <button type="button" id="process-google-doc" class="btn btn-secondary">Process Google Doc</button>
+                </div>
+            </section>
+
+            <!-- Progress Section -->
+            <section id="progress-section" class="card hidden">
+                <h2>Translation Progress</h2>
+                <div class="progress-info">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="progress-text">Processing...</span>
+                        <span id="progress-percentage">0%</span>
+                    </div>
+                </div>
+                
+                <div class="status-updates">
+                    <div id="status-messages"></div>
+                </div>
+            </section>
+
+            <!-- Live Display Section -->
+            <section id="live-display-section" class="card hidden">
+                <h2>Live Translation Display</h2>
+                
+                <div class="summary-section">
+                    <h3>Document Summary</h3>
+                    <div id="live-summary" class="summary-content"></div>
+                </div>
+                
+                <div class="live-translation-section">
+                    <h3>Live Translation Progress</h3>
+                    <div class="translation-stats">
+                        <span id="translated-count">0</span> / <span id="total-paragraphs">0</span> paragraphs translated
+                    </div>
+                    <div id="live-translation-content" class="translation-content"></div>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section id="results-section" class="card hidden">
+                <h2>Translation Results</h2>
+                
+                <div class="summary-section">
+                    <h3>Document Summary</h3>
+                    <div id="document-summary" class="summary-content"></div>
+                </div>
+                
+                <div class="translation-section">
+                    <h3>Translation</h3>
+                    <div id="translation-content" class="translation-content"></div>
+                </div>
+                
+                <div class="download-section">
+                    <h3>Download Results</h3>
+                    <div class="download-buttons">
+                        <button id="download-original" class="btn btn-primary">Download Original</button>
+                        <button id="download-translated" class="btn btn-success">Download Translated</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Powered by OpenAI GPT-4o • Built for document translation</p>
+        </footer>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html> 
